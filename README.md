@@ -74,14 +74,12 @@ PCL    >= 1.8,   Follow [PCL Installation](https://pointclouds.org/downloads/#li
 
 Eigen  >= 3.3.4, Follow [Eigen Installation](http://eigen.tuxfamily.org/index.php?title=Main_Page).
 
-### <span id="1.3">1.3. **livox_ros_driver2**</span>
-Follow [livox_ros_driver2 Installation](https://github.com/Livox-SDK/livox_ros_driver2).
+### <span id="1.3">1.3. **livox_ros_driver2 (for Livox CustomMsg input)**</span>
+For Livox `CustomMsg` input, follow [livox_ros_driver2 Installation](https://github.com/Livox-SDK/livox_ros_driver2) and source its workspace before building FAST-LIO. Builds for standard `PointCloud2` sensors, including Unilidar 2, do not require the Livox driver.
 
 You can also use the one I modified [livox_ros_driver2](https://github.com/Ericsii/livox_ros_driver2/tree/feature/use-standard-unit)
 
-*Remarks:*
-- Since the FAST-LIO must support Livox serials LiDAR firstly, so the **livox_ros_driver** must be installed and **sourced** before run any FAST-LIO launch file.
-- How to source? The easiest way is add the line ``` source $Livox_ros_driver_dir$/devel/setup.bash ``` to the end of file ``` ~/.bashrc ```, where ``` $Livox_ros_driver_dir$ ``` is the directory of the livox ros driver workspace (should be the ``` ws_livox ``` directory if you completely followed the livox official document).
+If you add the Livox driver after building FAST-LIO, source its workspace and rebuild FAST-LIO to enable `CustomMsg` support.
 
 
 ## 2. Build
@@ -95,7 +93,7 @@ Clone the repository and colcon build:
     colcon build --symlink-install
     . ./install/setup.bash # use setup.zsh if use zsh
 ```
-- **Remember to source the livox_ros_driver before build (follow [1.3 livox_ros_driver](#1.3))**
+- **For Livox `CustomMsg` input, source the Livox driver workspace before building (see [1.3](#1.3)).**
 - If you want to use a custom build of PCL, add the following line to ~/.bashrc
 ```export PCL_ROOT={CUSTOM_PCL_PATH}```
 ## 3. Directly run
@@ -126,7 +124,21 @@ ros2 launch livox_ros_driver2 msg_MID360_launch.py
 - For livox serials, FAST-LIO only support the data collected by the ``` livox_lidar_msg.launch ``` since only its ``` livox_ros_driver2/CustomMsg ``` data structure produces the timestamp of each LiDAR point which is very important for the motion undistortion. ``` livox_lidar.launch ``` can not produce it right now.
 - If you want to change the frame rate, please modify the **publish_freq** parameter in the [livox_lidar_msg.launch](https://github.com/Livox-SDK/livox_ros_driver/blob/master/livox_ros_driver2/launch/livox_lidar_msg.launch) of [Livox-ros-driver](https://github.com/Livox-SDK/livox_ros_driver2) before make the livox_ros_driver pakage.
 
-### 3.2 For Livox serials with external IMU
+### 3.2 Unitree Unilidar 2 / L2
+
+Build and launch the [Unitree SDK2 ROS 2 driver](https://github.com/unitreerobotics/unilidar_sdk2) in its own workspace, then run FAST-LIO with the supplied configuration:
+
+```bash
+ros2 launch unitree_lidar_ros2 launch.py
+# In another terminal with the FAST-LIO workspace sourced:
+ros2 launch fast_lio mapping.launch.py config_file:=unilidar2.yaml
+```
+
+The configuration uses the driver's default `/unilidar/cloud` and `/unilidar/imu` topics. Its `lidar_type: 5` handler reads the driver's `x`, `y`, `z`, `intensity`, `ring`, and `time` PointCloud2 fields; `time` is relative to the cloud stamp in seconds and is converted to the milliseconds FAST-LIO uses for motion compensation. The driver defaults to 18 scan lines. The supplied IMU-to-LiDAR translation is taken from [Unitree's coordinate system definition](https://github.com/unitreerobotics/unilidar_sdk2#2-coordinate-system-definition). Change the topics, scan line count, and extrinsic parameters if your driver or mounting differs. Keep the cloud and IMU timestamps on the same clock.
+
+For the processing steps, configuration choices, and source links, see the [Unilidar 2 integration guide](doc/unilidar2.md).
+
+### 3.3 For Livox serials with external IMU
 
 mapping_avia.launch theratically supports mid-70, mid-40 or other livox serial LiDAR, but need to setup some parameters befor run:
 

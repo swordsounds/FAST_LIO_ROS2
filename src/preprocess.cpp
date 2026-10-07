@@ -1,5 +1,7 @@
 #include "preprocess.h"
 
+#include <algorithm>
+#include <cmath>
 #include <pcl/common/common.h>
 
 #define RETURN0 0x00
@@ -44,11 +46,13 @@ void Preprocess::set(bool feat_en, int lid_type, double bld, int pfilt_num)
   point_filter_num = pfilt_num;
 }
 
+#ifdef FAST_LIO_HAS_LIVOX
 void Preprocess::process(const livox_ros_driver2::msg::CustomMsg::UniquePtr &msg, PointCloudXYZI::Ptr& pcl_out)
 {
   avia_handler(msg);
   *pcl_out = pl_surf;
 }
+#endif
 
 void Preprocess::process(const sensor_msgs::msg::PointCloud2::UniquePtr &msg, PointCloudXYZI::Ptr& pcl_out)
 {
@@ -85,6 +89,10 @@ void Preprocess::process(const sensor_msgs::msg::PointCloud2::UniquePtr &msg, Po
       mid360_handler(msg);
       break;
 
+    case UNILIDAR2:
+      unilidar2_handler(msg);
+      break;
+
     default:
       default_handler(msg);
       break;
@@ -92,6 +100,7 @@ void Preprocess::process(const sensor_msgs::msg::PointCloud2::UniquePtr &msg, Po
   *pcl_out = pl_surf;
 }
 
+#ifdef FAST_LIO_HAS_LIVOX
 void Preprocess::avia_handler(const livox_ros_driver2::msg::CustomMsg::UniquePtr &msg)
 {
   pl_surf.clear();
@@ -192,6 +201,8 @@ void Preprocess::avia_handler(const livox_ros_driver2::msg::CustomMsg::UniquePtr
     }
   }
 }
+
+#endif
 
 void Preprocess::oust64_handler(const sensor_msgs::msg::PointCloud2::UniquePtr &msg)
 {
@@ -469,6 +480,92 @@ void Preprocess::velodyne_handler(const sensor_msgs::msg::PointCloud2::UniquePtr
           pl_surf.points.push_back(added_pt);
         }
       }
+    }
+  }
+}
+
+void Preprocess::unilidar2_handler(const sensor_msgs::msg::PointCloud2::UniquePtr &msg)
+{
+  pl_surf.clear();
+  pl_corn.clear();
+  pl_full.clear();
+
+  const auto time_field = std::find_if(msg->fields.begin(), msg->fields.end(),
+      [](const sensor_msgs::msg::PointField &field) { return field.name == "time"; });
+  if (time_field == msg->fields.end() || time_field->datatype != sensor_msgs::msg::PointField::FLOAT32)
+  {
+    RCLCPP_ERROR_ONCE(rclcpp::get_logger("fast_lio"),
+        "Unilidar 2 cloud requires a float32 'time' field for motion compensation");
+    return;
+  }
+
+  // SDK2 publishes time in seconds relative to the cloud header stamp.
+  // FAST-LIO stores point offsets in milliseconds in curvature.
+  pcl::PointCloud<unitree_ros::Point> pl_orig;
+  pcl::fromROSMsg(*msg, pl_orig);
+  pl_surf.reserve(pl_orig.size());
+
+  if (feature_enabled)
+  {
+    if (N_SCANS <= 0)
+      return;
+    for (int ring = 0; ring < N_SCANS && ring < 128; ++ring)
+    {
+      pl_buff[ring].clear();
+      pl_buff[ring].reserve(pl_orig.size() / N_SCANS + 1);
+    }
+  }
+
+  for (size_t i = 0; i < pl_orig.size(); ++i)
+  {
+    const auto &src = pl_orig.points[i];
+    if (!std::isfinite(src.x) || !std::isfinite(src.y) || !std::isfinite(src.z) ||
+        !std::isfinite(src.time) || src.time < 0 ||
+        src.x * src.x + src.y * src.y + src.z * src.z <= blind * blind)
+      continue;
+
+    PointType point;
+    point.x = src.x;
+    point.y = src.y;
+    point.z = src.z;
+    point.intensity = src.intensity;
+    point.normal_x = 0;
+    point.normal_y = 0;
+    point.normal_z = 0;
+    point.curvature = src.time * time_unit_scale;
+
+    if (feature_enabled)
+    {
+      // Unitree ring IDs start at 1.
+      if (src.ring >= 1 && src.ring <= N_SCANS && src.ring <= 128)
+        pl_buff[src.ring - 1].push_back(point);
+    }
+    else if (i % std::max(1, point_filter_num) == 0)
+    {
+      pl_surf.push_back(point);
+    }
+  }
+
+  if (feature_enabled)
+  {
+    for (int ring = 0; ring < N_SCANS && ring < 128; ++ring)
+    {
+      auto &pl = pl_buff[ring];
+      if (pl.size() < 2)
+        continue;
+      auto &types = typess[ring];
+      types.clear();
+      types.resize(pl.size());
+      for (size_t i = 0; i + 1 < pl.size(); ++i)
+      {
+        types[i].range = std::hypot(pl[i].x, pl[i].y);
+        const double dx = pl[i].x - pl[i + 1].x;
+        const double dy = pl[i].y - pl[i + 1].y;
+        const double dz = pl[i].z - pl[i + 1].z;
+        types[i].dista = dx * dx + dy * dy + dz * dz;
+      }
+      types.back().range = std::hypot(pl.back().x, pl.back().y);
+      give_feature(pl, types);
     }
   }
 }

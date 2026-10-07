@@ -2,7 +2,9 @@
 #include <rclcpp/rclcpp.hpp>
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#ifdef FAST_LIO_HAS_LIVOX
 #include <livox_ros_driver2/msg/custom_msg.hpp>
+#endif
 
 using namespace std;
 
@@ -16,8 +18,9 @@ enum LID_TYPE
   AVIA = 1,
   VELO16,
   OUST64,
-  MID360
-};  //{1, 2, 3}
+  MID360,
+  UNILIDAR2
+};
 enum TIME_UNIT
 {
   SEC = 0,
@@ -82,6 +85,12 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(velodyne_ros::Point,
                                   (float, x, x)(float, y, y)(float, z, z)(float, intensity,
                                                                           intensity)(float, time, time)(uint16_t, ring,
                                                                                                         ring))
+
+// The Unitree SDK2 ROS 2 cloud has the same PointCloud2 field layout as this point type.
+namespace unitree_ros
+{
+using Point = velodyne_ros::Point;
+}
 
 namespace ouster_ros
 {
@@ -158,7 +167,9 @@ class Preprocess
   Preprocess();
   ~Preprocess();
   
+#ifdef FAST_LIO_HAS_LIVOX
   void process(const livox_ros_driver2::msg::CustomMsg::UniquePtr &msg, PointCloudXYZI::Ptr &pcl_out);
+#endif
   void process(const sensor_msgs::msg::PointCloud2::UniquePtr &msg, PointCloudXYZI::Ptr &pcl_out);
   void set(bool feat_en, int lid_type, double bld, int pfilt_num);
 
@@ -173,10 +184,13 @@ class Preprocess
   // ros::Publisher pub_full, pub_surf, pub_corn;
 
 private:
+#ifdef FAST_LIO_HAS_LIVOX
   void avia_handler(const livox_ros_driver2::msg::CustomMsg::UniquePtr &msg);
+#endif
   void oust64_handler(const sensor_msgs::msg::PointCloud2::UniquePtr &msg);
   void velodyne_handler(const sensor_msgs::msg::PointCloud2::UniquePtr &msg);
   void mid360_handler(const sensor_msgs::msg::PointCloud2::UniquePtr &msg);
+  void unilidar2_handler(const sensor_msgs::msg::PointCloud2::UniquePtr &msg);
   void default_handler(const sensor_msgs::msg::PointCloud2::UniquePtr &msg);
   void give_feature(PointCloudXYZI &pl, vector<orgtype> &types);
   void pub_func(PointCloudXYZI &pl, const rclcpp::Time &ct);

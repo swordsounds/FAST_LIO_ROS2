@@ -59,7 +59,7 @@ find_package(std_srvs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(pcl_ros REQUIRED)
 find_package(pcl_conversions REQUIRED)
-find_package(livox_ros_driver2 REQUIRED)
+find_package(livox_ros_driver2 QUIET)
 find_package(rosidl_default_generators REQUIRED)
 
 set(dependencies
@@ -73,8 +73,14 @@ set(dependencies
   visualization_msgs
   pcl_ros
   pcl_conversions
-  livox_ros_driver2
 )
+
+if(livox_ros_driver2_FOUND)
+  list(APPEND dependencies livox_ros_driver2)
+  message(STATUS "Building with Livox CustomMsg support")
+else()
+  message(STATUS "livox_ros_driver2 not found; building PointCloud2 support only")
+endif()
 
 # Thirdparty libraries
 find_package(Eigen3 REQUIRED)
@@ -93,6 +99,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 ament_export_dependencies(rosidl_default_runtime)
 
 add_executable(fastlio_mapping src/laserMapping.cpp include/ikd-Tree/ikd_Tree.cpp src/preprocess.cpp)
+if(livox_ros_driver2_FOUND)
+  target_compile_definitions(fastlio_mapping PRIVATE FAST_LIO_HAS_LIVOX)
+endif()
 target_include_directories(fastlio_mapping PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
